@@ -7,7 +7,6 @@ import re
 from collections import defaultdict
 
 # Configuración avanzada de logging
-default
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
 logging.basicConfig(
     level=LOG_LEVEL,
@@ -20,11 +19,14 @@ logger.info("Iniciando aplicación Flask")
 app = Flask(__name__)
 
 # Clave de Kluster desde variables de entorno
-KLUSTER_API_KEY = os.getenv("KLUSTER_API_KEY", "06a53bbf-ee89-4694-a28f-83a739f540ed")
+KLUSTER_API_KEY = os.getenv(
+    "KLUSTER_API_KEY",
+    "06a53bbf-ee89-4694-a28f-83a739f540ed"
+)
 MODEL = "deepseek-ai/DeepSeek-V3-0324"
 
 # Configuración de sesiones
-SESSION_TIMEOUT = timedelta(minutes=30)  # Tiempo de expiración de sesiones
+SESSION_TIMEOUT = timedelta(minutes=30)
 
 # Catálogo de productos Museballer
 CATALOGO = [
@@ -112,7 +114,7 @@ session_activity = {}
 # Generar prompt para el modelo
 def generar_prompt_catalogo():
     productos = "\n".join(
-        f"- {p['nombre']}: {p['precio']} – {p['descripcion']}" 
+        f"- {p['nombre']}: {p['precio']} – {p['descripcion']}"
         for p in CATALOGO
     )
     prompt = f"""
@@ -138,7 +140,8 @@ Si no sabes la respuesta, sugiere contactar al equipo humano. Responde de forma 
 def sanitize_input(text):
     if not text:
         return ""
-    sanitized = re.sub("[<>\"'\\]", "", text)
+    # El patrón [<>"'\\] remueve <, >, ", ' y backslash
+    sanitized = re.sub("[<>\"'\\\\]", "", text)
     return sanitized[:500]
 
 @app.route("/", methods=["GET"])
@@ -196,7 +199,9 @@ def chat():
     if len(user_input) < 2:
         return jsonify({"error": "Mensaje demasiado corto"}), 400
 
-    raw_session = data.get('session_id', f"default_{re.sub(r'\W+', '', client_ip)}")
+    # Usar concatenación en lugar de f-string con backslashes
+    default_sid = 'default_' + re.sub(r'\W+', '', client_ip)
+    raw_session = data.get('session_id', default_sid)
     session_id = re.sub(r'\W+', '', raw_session)[:64] or "default_session"
     session_activity[session_id] = datetime.now()
 
@@ -226,8 +231,7 @@ def chat():
             timeout=15
         )
         res.raise_for_status()
-        resp_time = (datetime.now() - start).total_seconds()
-        logger.info(f"Respuesta Kluster en {resp_time:.2f}s")
+        logger.info(f"Respuesta Kluster en {(datetime.now() - start).total_seconds():.2f}s")
         result = res.json()
         if "choices" not in result or not result["choices"]:
             return jsonify({"error": "Respuesta inesperada del modelo"}), 500
