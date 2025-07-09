@@ -20,8 +20,7 @@ app = Flask(__name__)
 
 # Clave de Kluster desde variables de entorno
 KLUSTER_API_KEY = os.getenv(
-    "KLUSTER_API_KEY",
-    "06a53bbf-ee89-4694-a28f-83a739f540ed"
+    "KLUSTER_API_KEY"
 )
 MODEL = "deepseek-ai/DeepSeek-V3-0324"
 
@@ -87,7 +86,7 @@ FAQ = {
         "Permite cambio o devolución según corresponda."
     ),
     "pago": (
-        "Aceptamos tarjetas de crédito/débito, transferencia bancaria y Mercado Pago. "
+        "Aceptamos tarjetas de crédito/débito, transferencia bancaria y efectivo. "
         "El procesamiento inicia tras la confirmación del pago."
     ),
     "tallas": (
@@ -102,7 +101,7 @@ FAQ = {
         "Escríbenos por correo: contacto@museballer.cl\n"
         "WhatsApp: +56989419620\n"
         "Instagram: mensaje directo en https://www.instagram.com/museballer.cl\n"
-        "Tu opinión: https://tally.so/r/nPe2xx\n"
+        "Tu opinión: https://tally.so/r/3xbRxo\n"
         "Visita nuestra tienda online: https://www.museballer.cl"
     )
 }
@@ -250,6 +249,7 @@ def chat():
 # CORS
 ALLOWED_ORIGINS = [
     "https://bio.museballer.cl",
+    "https://www.museballer.cl",
     "https://museballer.cl"
 ]
 
