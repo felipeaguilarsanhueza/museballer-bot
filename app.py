@@ -6,7 +6,9 @@ from datetime import datetime, timedelta
 import re
 from collections import defaultdict
 
-# Configuración avanzada de logging\LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
+# Configuración avanzada de logging
+default
+LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
 logging.basicConfig(
     level=LOG_LEVEL,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
@@ -98,18 +100,22 @@ FAQ = {
         "Escríbenos por correo: contacto@museballer.cl\n"
         "WhatsApp: +56989419620\n"
         "Instagram: mensaje directo en https://www.instagram.com/museballer.cl\n"
-        f"Tu opinión: https://tally.so/r/3xbRxo\n"
+        "Tu opinión: https://tally.so/r/nPe2xx\n"
         "Visita nuestra tienda online: https://www.museballer.cl"
     )
 }
 
+# Historial y actividad de sesiones
+conversation_history = defaultdict(list)
+session_activity = {}
+
 # Generar prompt para el modelo
 def generar_prompt_catalogo():
-    productos = "\n".join([
-        f"- {p['nombre']}: {p['precio']} – {p['descripcion']}"
+    productos = "\n".join(
+        f"- {p['nombre']}: {p['precio']} – {p['descripcion']}" 
         for p in CATALOGO
-    ])
-    prompt = f'''
+    )
+    prompt = f"""
 Eres un asistente conciso y claro de Museballer.cl. Responde con frases breves, sin saltos de línea innecesarios.
 Usa <strong> solo si es necesario, sin salto de línea luego de etiquetas HTML.
 
@@ -125,28 +131,28 @@ FAQs:
 - Contacto: {FAQ['contacto']}
 
 Si no sabes la respuesta, sugiere contactar al equipo humano. Responde de forma breve y útil.
-'''   
-    return prompt
+"""
+    return prompt.strip()
 
 # Limpiar entradas inseguras
 def sanitize_input(text):
     if not text:
         return ""
-    sanitized = re.sub(r'[<>"'"\\]', '', text)
+    sanitized = re.sub("[<>\"'\\]", "", text)
     return sanitized[:500]
 
-@app.route("/")
+@app.route("/", methods=["GET"])
 def home():
-    return '''
+    return """
     <h1>API Chatbot Museballer.cl</h1>
     <p>Realiza un POST a <code>/chat</code> con JSON que incluya <code>{"message":"tu pregunta"}</code></p>
     <p>Ejemplo:<br>
     curl -X POST http://localhost:5000/chat -H "Content-Type: application/json" -d '{"message":"¿Qué prenda me recomiendas?"}'
     </p>
     <p>Para reiniciar conversación: POST /reset con JSON <code>{"session_id":"tu_sesion"}</code></p>
-    '''
+    """
 
-@app.route("/health")
+@app.route("/health", methods=["GET"])
 def health_check():
     return jsonify({
         "status": "OK",
@@ -155,11 +161,7 @@ def health_check():
         "sessions": len(conversation_history)
     }), 200
 
-# Historial y actividad de sesiones
-conversation_history = defaultdict(list)
-session_activity = {}
-
-# Eliminar sesiones expiradas
+# Limpiar sesiones expiradas
 def clean_expired_sessions():
     now = datetime.now()
     expired = [sid for sid, last in session_activity.items() if now - last > SESSION_TIMEOUT]
@@ -184,56 +186,77 @@ def chat():
     clean_expired_sessions()
     logger.info("Petición /chat recibida")
     client_ip = request.headers.get('X-Forwarded-For', request.remote_addr)
+    logger.info(f"IP cliente: {client_ip}")
+
     data = request.get_json(force=True, silent=True)
     if not data or 'message' not in data:
         return jsonify({"error": "JSON inválido o falta campo 'message'"}), 400
+
     user_input = sanitize_input(data['message'])
     if len(user_input) < 2:
         return jsonify({"error": "Mensaje demasiado corto"}), 400
-    raw_session = data.get('session_id', 'default_' + re.sub(r'\W+', '', client_ip))
-    session_id = re.sub(r'\W+', '', raw_session)[:64] or 'default_session'
+
+    raw_session = data.get('session_id', f"default_{re.sub(r'\W+', '', client_ip)}")
+    session_id = re.sub(r'\W+', '', raw_session)[:64] or "default_session"
     session_activity[session_id] = datetime.now()
+
     if session_id not in conversation_history:
         conversation_history[session_id].append({
             'role': 'system',
             'content': generar_prompt_catalogo()
         })
         logger.info(f"Nueva sesión iniciada: {session_id}")
+
     conversation_history[session_id].append({'role': 'user', 'content': user_input})
+
     try:
         start = datetime.now()
         res = requests.post(
             "https://api.kluster.ai/v1/chat/completions",
-            headers={"Authorization": f"Bearer {KLUSTER_API_KEY}", "Content-Type": "application/json"},
-            json={"model": MODEL, "messages": conversation_history[session_id], "max_tokens": 250, "temperature": 0.5},
+            headers={
+                "Authorization": f"Bearer {KLUSTER_API_KEY}",
+                "Content-Type": "application/json"
+            },
+            json={
+                "model": MODEL,
+                "messages": conversation_history[session_id],
+                "max_tokens": 250,
+                "temperature": 0.5
+            },
             timeout=15
         )
         res.raise_for_status()
         resp_time = (datetime.now() - start).total_seconds()
         logger.info(f"Respuesta Kluster en {resp_time:.2f}s")
         result = res.json()
-        reply = result['choices'][0]['message']['content'].replace('\n', ' ').strip()
-        conversation_history[session_id].append({'role': 'assistant', 'content': reply})
+        if "choices" not in result or not result["choices"]:
+            return jsonify({"error": "Respuesta inesperada del modelo"}), 500
+        reply = result["choices"][0]["message"]["content"].replace("\n", " ").strip()
+        conversation_history[session_id].append({"role": "assistant", "content": reply})
         if len(conversation_history[session_id]) > 9:
             conversation_history[session_id] = [conversation_history[session_id][0]] + conversation_history[session_id][-8:]
-        return jsonify({'reply': reply, 'session_id': session_id})
+        return jsonify({"reply": reply, "session_id": session_id})
+    except requests.exceptions.RequestException as e:
+        logger.error(f"Error API Kluster: {e}")
+        return jsonify({"error": "Error al conectar con la API de IA", "details": str(e)}), 500
     except Exception as e:
-        logger.error(f"Error al procesar chat: {e}")
+        logger.error(f"Error inesperado: {e}")
         return jsonify({"error": "Error interno", "details": str(e)}), 500
 
 # CORS
 ALLOWED_ORIGINS = [
-    "https://www.museballer.cl",
+    "https://bio.museballer.cl",
     "https://museballer.cl"
 ]
+
 @app.after_request
- def add_cors_headers(response):
-    origin = request.headers.get('Origin')
+def add_cors_headers(response):
+    origin = request.headers.get("Origin")
     if origin in ALLOWED_ORIGINS:
-        response.headers['Access-Control-Allow-Origin'] = origin
-        response.headers['Vary'] = 'Origin'
-    response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization'
-    response.headers['Access-Control-Allow-Methods'] = 'POST, OPTIONS, GET'
+        response.headers["Access-Control-Allow-Origin"] = origin
+        response.headers["Vary"] = "Origin"
+    response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization"
+    response.headers["Access-Control-Allow-Methods"] = "POST, OPTIONS, GET, DELETE"
     return response
 
 @app.route("/chat", methods=["OPTIONS"])
@@ -241,4 +264,4 @@ def handle_options():
     return jsonify({}), 200
 
 if __name__ == "__main__":
-    app.run(host='0.0.0.0', port=int(os.getenv('PORT', 5000)))
+    app.run(host="0.0.0.0", port=int(os.getenv("PORT", 5000)))
